@@ -28,6 +28,145 @@ agree by construction. A real LLM adapter slots in by implementing
 `AssistantModel`; both protocol methods are async-shaped for exactly that.
 Tests keep running against the deterministic default either way.
 
+## Diagrams
+
+Main runtime components:
+
+- `POST /api/chat/stream` (app/api/chat.py, app/main.py): validates input, streams typed `StreamEvent`s as NDJSON, guarantees exactly one terminal event per stream.
+- `AssistantService.stream_reply` (app/services/assistant.py): persists the user message, plans, runs at most one tool under a timeout, streams reply text, persists the assistant message on completion.
+- `RuleBasedAssistantModel` (app/models/rule_based.py): plans via regex intent detection plus AST pre-validation and owns every user-facing string.
+- `ToolRegistry` + `CalculatorTool` (app/services/tool_registry.py, app/tools/calculator.py): dict-lookup tool dispatch that fails closed on unknown names; arithmetic evaluated over a whitelisted AST.
+- Static frontend (app/static/app.js): parses the NDJSON stream incrementally and renders the streaming bubble plus a live tool status pill.
+
+### Reply orchestration
+
+`stream_reply` over time: where events are emitted, where persistence happens, and how tool failures still end in a completed reply.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant A as api/chat.py
+  participant S as AssistantService
+  participant M as AssistantModel
+  participant R as ToolRegistry
+  participant D as ConversationStore
+
+  C->>A: POST /api/chat/stream
+  Note over A: validates request (400 before streaming),<br/>serializes events as NDJSON,<br/>guarantees exactly one terminal event
+  A->>S: stream_reply(conversation_id, text)
+  S-->>C: message_start
+  S->>D: append user message, read history
+  S->>M: plan_next_action(history)
+  M-->>S: ToolCall or DirectResponse
+
+  alt ToolCall
+    S-->>C: tool_start
+    S->>R: run(tool_name, tool_input) under asyncio.wait_for
+    R-->>S: ToolResult (unknown tool, exception, and timeout all become failed)
+    alt result ok
+      S-->>C: tool_result
+    else result failed
+      S-->>C: tool_error
+    end
+  else DirectResponse
+    Note over S: no tool phase
+  end
+
+  S->>M: stream_response(history, tool_result)
+  loop each text chunk
+    M-->>S: chunk
+    S-->>C: text_delta
+  end
+  S->>D: append assistant message (only on completion)
+  S-->>C: message_done
+
+  opt unhandled exception mid-stream
+    A-->>C: error event (in-band, HTTP 200 already sent)
+  end
+```
+
+Source: app/api/chat.py, app/services/assistant.py, app/services/tool_registry.py.
+
+### Ports and adapters
+
+The hexagonal core: the service depends on three protocols only, adapters implement them, and `create_app` does the wiring. A real LLM or a durable store is an implementation of an existing seam, not a redesign; tests inject fakes at the same points.
+
+```mermaid
+flowchart LR
+  classDef driver fill:#e8f0fe,stroke:#1a73e8,color:#174ea6;
+  classDef core fill:#f1f3f4,stroke:#5f6368,color:#202124;
+  classDef port fill:#fef7e0,stroke:#b06000,color:#5f4400;
+  classDef adapter fill:#e6f4ea,stroke:#1e8e3e,color:#0b3d18;
+  classDef deferred fill:#ffffff,stroke:#5f6368,color:#5f6368,stroke-dasharray:4 3;
+
+  JS[app.js<br/>NDJSON client]:::driver --> API[api/chat.py<br/>HTTP + terminal-event wrapper]:::driver
+
+  subgraph CORE [application core]
+    SVC[AssistantService<br/>copy-free orchestration]:::core
+    PM([AssistantModel<br/>port]):::port
+    PT([Tool port<br/>via ToolRegistry]):::port
+    PS([ConversationStore<br/>port]):::port
+    SVC --> PM
+    SVC --> PT
+    SVC --> PS
+  end
+
+  API --> SVC
+
+  RB[RuleBasedAssistantModel<br/>planning + all user-facing copy]:::adapter -.-> PM
+  LLM[LLM adapter<br/>deferred]:::deferred -.-> PM
+  CALC[CalculatorTool<br/>AST whitelist]:::adapter -.-> PT
+  IM[InMemoryConversationStore<br/>history cap]:::adapter -.-> PS
+  PG[Postgres/Redis store<br/>deferred]:::deferred -.-> PS
+
+  ROOT[create_app<br/>composition root]:::driver -. wires production defaults;<br/>tests inject ScriptedModel and fake tools .-> SVC
+```
+
+Source: app/main.py, app/services/assistant.py, app/models/protocol.py, app/models/rule_based.py, app/services/tool_registry.py, app/services/conversation_store.py, app/tools/calculator.py, tests/test_assistant_service.py.
+
+### Stream lifecycle
+
+The state machine behind the two invariants: every stream ends in exactly one `message_done` or `error` event, and a disconnect drops the partial reply while keeping the user message.
+
+```mermaid
+stateDiagram-v2
+  classDef ok fill:#e6f4ea,stroke:#1e8e3e,color:#0b3d18;
+  classDef warn fill:#fef7e0,stroke:#b06000,color:#5f4400;
+  classDef err fill:#fce8e6,stroke:#c5221f,color:#5c1a14;
+
+  state "Active (HTTP 200, NDJSON stream open)" as Active {
+    Started --> Planning: persist user message
+    Planning --> ToolRunning: ToolCall
+    Planning --> Streaming: DirectResponse
+    ToolRunning --> Streaming: tool_result or tool_error
+  }
+
+  [*] --> Started: emit message_start
+  Streaming --> Done: emit message_done and persist assistant message
+  Active --> Error: unhandled exception, emit in-band error
+  Active --> Cancelled: client disconnect (CancelledError)
+
+  Done --> [*]
+  Error --> [*]
+  Cancelled --> [*]: partial reply dropped, user message kept
+
+  note right of Done
+    Terminal-event guarantee:
+    exactly one message_done or error per stream
+  end note
+  note right of Cancelled
+    Nothing more is emitted;
+    the connection is already gone
+  end note
+
+  class Done ok
+  class Error err
+  class Cancelled warn
+```
+
+Source: app/services/assistant.py, app/api/chat.py, tests/test_api_stream.py.
+
 ## Key tradeoffs
 
 **Deterministic model over a real LLM.** The exercise is the architecture
