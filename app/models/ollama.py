@@ -23,9 +23,12 @@ from app.tools.calculator import validate_expression
 CALCULATOR_TOOL_NAME = "calculator"
 WEATHER_TOOL_NAME = "weather_lookup"
 MAX_CITY_LENGTH = 80
+# Enough context to resolve follow-ups ("and in Lisbon?") without unbounded prompts.
+PLANNER_CONTEXT_MESSAGES = 6
 
 _PLANNER_PROMPT = (
     "You classify the user's LAST message and pick one action. "
+    "Earlier messages are only context for resolving references. "
     "Reply with JSON only, no other text, in exactly one of these shapes:\n"
     '- Arithmetic to compute: {"action": "calculator", "expression": "<expression only>"}\n'
     '- Current weather somewhere: {"action": "weather_lookup", "location": "<place>"}\n'
@@ -64,10 +67,7 @@ class OllamaAssistantModel:
                     f"{self._base_url}/api/chat",
                     json={
                         "model": self._model_name,
-                        "messages": [
-                            {"role": "system", "content": _PLANNER_PROMPT},
-                            {"role": "user", "content": messages[-1].content},
-                        ],
+                        "messages": self._planner_messages(messages),
                         "stream": False,
                         "format": "json",
                         "options": {"temperature": 0},
@@ -110,6 +110,14 @@ class OllamaAssistantModel:
                 f"The local model at {self._base_url} is not responding. "
                 f"Start it with: ollama run {self._model_name}"
             )
+
+    def _planner_messages(self, messages: list[Message]) -> list[dict[str, str]]:
+        chat = [{"role": "system", "content": _PLANNER_PROMPT}]
+        chat.extend(
+            {"role": m.role, "content": m.content}
+            for m in messages[-PLANNER_CONTEXT_MESSAGES:]
+        )
+        return chat
 
     def _responder_messages(
         self, messages: list[Message], tool_result: ToolResult | None
