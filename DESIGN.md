@@ -235,7 +235,8 @@ of a consumer assistant.
 
 **Cheaper vs more capable model.** Route by task type, risk, and latency
 budget across `AssistantModel` implementations. Gate deploys on offline golden
-evals (`tests/cases/basic.jsonl` is the seed of exactly that) and watch online
+evals (`tests/cases/basic.jsonl` is the seed of exactly that; `run_evals.py`
+replays it against whichever model is configured) and watch online
 metrics: fallback rate, retry rate, cost per successful task. A cheaper model
 is only cheaper if it does not increase retries and failures.
 
@@ -255,5 +256,4 @@ is only cheaper if it does not increase retries and failures.
 
 ## With more time
 
-A thin `run_evals.py` CLI over the same golden jsonl and a README GIF of the
-tool-error flow.
+A README GIF of the tool-error flow.

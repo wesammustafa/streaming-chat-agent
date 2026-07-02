@@ -24,7 +24,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.mypy]
-files = ["app", "tests"]
+files = ["app", "tests", "run_evals.py"]
 python_version = "3.11"
 strict = true
 

@@ -102,6 +102,17 @@ runs in well under two seconds and never requires Ollama. CI runs the same
 checks on every push and pull request. Lint with `uv run ruff check .` and
 type-check with `uv run mypy`.
 
+## Evals
+
+`uv run python run_evals.py` replays the golden cases from
+`tests/cases/basic.jsonl` against the app in-process and prints a per-case
+pass/fail summary (non-zero exit on any failure). pytest already covers the
+same cases; the CLI exists to gate a different model by hand:
+
+```bash
+ASSISTANT_MODEL=ollama uv run python run_evals.py
+```
+
 ## API
 
 `POST /api/chat/stream` with `{"message": "...", "conversation_id": "..."}`.
