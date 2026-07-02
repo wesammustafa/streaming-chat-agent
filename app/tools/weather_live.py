@@ -5,6 +5,8 @@ same tool name as the fixture-based WeatherLookupTool, so planners never know
 which implementation is wired; the fixture stays the default and test target.
 """
 
+from typing import Any
+
 import httpx
 
 from app.domain.tools import ToolResult, ToolSpec
@@ -86,7 +88,7 @@ class LiveWeatherTool:
             )
         )
 
-    async def _geocode(self, client: httpx.AsyncClient, city: str) -> dict | None:
+    async def _geocode(self, client: httpx.AsyncClient, city: str) -> dict[str, Any] | None:
         response = await client.get(
             GEOCODING_URL, params={"name": city, "count": 1, "format": "json"}
         )
@@ -96,7 +98,7 @@ class LiveWeatherTool:
 
     async def _current_weather(
         self, client: httpx.AsyncClient, latitude: float, longitude: float
-    ) -> dict:
+    ) -> dict[str, Any]:
         response = await client.get(
             FORECAST_URL,
             params={
@@ -106,4 +108,5 @@ class LiveWeatherTool:
             },
         )
         response.raise_for_status()
-        return response.json()["current"]
+        current: dict[str, Any] = response.json()["current"]
+        return current

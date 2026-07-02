@@ -47,7 +47,7 @@ def _evaluate(node: ast.AST) -> int | float:
     match node:
         case ast.Expression(body=body):
             return _evaluate(body)
-        case ast.Constant(value=value):
+        case ast.Constant(value=(int() | float()) as value):
             return value
         case ast.UnaryOp(op=ast.UAdd(), operand=operand):
             return +_evaluate(operand)

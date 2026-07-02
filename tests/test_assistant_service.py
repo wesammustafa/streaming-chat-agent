@@ -16,8 +16,9 @@ class ScriptedModel:
     def __init__(self, action, chunks=("Hello ", "there")):
         self._action = action
         self._chunks = chunks
-        self.seen_tool_result = "unset"
-        self.seen_messages = None
+        # "unset" distinguishes "never called" from a genuine None tool result.
+        self.seen_tool_result: ToolResult | str | None = "unset"
+        self.seen_messages: list[Message] | None = None
 
     async def plan_next_action(self, messages):
         self.seen_messages = messages
@@ -115,7 +116,7 @@ async def test_raising_tool_becomes_tool_error_and_reply_still_completes():
         "message_done",
     ]
     assert "failed unexpectedly" in events[2].error
-    assert model.seen_tool_result.ok is False
+    assert model.seen_tool_result == ToolResult.failed("fake failed unexpectedly")
 
 
 async def test_hanging_tool_times_out_via_injected_timeout():
@@ -164,10 +165,12 @@ async def test_model_sees_full_history_on_later_turns():
     service = make_service(model, store=store)
     await events_of(service, text="first")
     await events_of(service, text="second")
+    assert model.seen_messages is not None
     assert [m.content for m in model.seen_messages] == ["first", "Hello there", "second"]
 
 
 async def test_user_message_is_stored_before_planning():
     model = ScriptedModel(DirectResponse())
     await events_of(make_service(model), text="just sent")
+    assert model.seen_messages is not None
     assert model.seen_messages[-1] == Message(role="user", content="just sent")
