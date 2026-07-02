@@ -14,7 +14,7 @@ import pytest
 from app.domain.actions import ToolCall
 from app.domain.messages import Message
 from app.domain.tools import ToolResult
-from app.models.ollama import OllamaAssistantModel
+from app.models.ollama import PLANNER_CONTEXT_MESSAGES, OllamaAssistantModel
 
 
 def user(text: str) -> list[Message]:
@@ -93,6 +93,31 @@ async def test_http_error_after_partial_output_reraises():
         async for chunk in model.stream_response(user("hi")):
             chunks.append(chunk)
     assert chunks == ["partial "]
+
+
+async def test_planner_sends_recent_history_for_follow_ups():
+    payloads: list[dict[str, Any]] = []
+    model = capturing_model(payloads)
+    history = [
+        Message(role="user", content="what's the weather in Madrid?"),
+        Message(role="assistant", content="Madrid: 31°C, sunny."),
+        Message(role="user", content="and in Lisbon?"),
+    ]
+    await model.plan_next_action(history)
+    sent = payloads[0]["messages"]
+    assert sent[0]["role"] == "system"
+    assert sent[1:] == [{"role": m.role, "content": m.content} for m in history]
+
+
+async def test_planner_context_window_is_capped():
+    payloads: list[dict[str, Any]] = []
+    model = capturing_model(payloads)
+    history = [Message(role="user", content=f"message {i}") for i in range(10)]
+    await model.plan_next_action(history)
+    sent = payloads[0]["messages"]
+    assert len(sent) == 1 + PLANNER_CONTEXT_MESSAGES
+    assert sent[1]["content"] == "message 4"
+    assert sent[-1]["content"] == "message 9"
 
 
 async def test_responder_prepends_system_prompt_and_maps_history():
