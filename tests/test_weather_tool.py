@@ -79,14 +79,14 @@ async def test_live_tool_formats_geocoded_result():
 async def test_live_tool_unknown_place_fails_closed():
     result = await LiveWeatherTool(transport=_mock_open_meteo({"results": []})).run("Xyzzy")
     assert not result.ok
-    assert "could not find" in result.error
+    assert result.error and "could not find" in result.error
 
 
 async def test_live_tool_unreachable_service_fails_closed(monkeypatch):
     monkeypatch.setattr("app.tools.weather_live.GEOCODING_URL", "http://127.0.0.1:1/v1/search")
     result = await LiveWeatherTool(request_timeout_seconds=2).run("Madrid")
     assert not result.ok
-    assert "unreachable" in result.error
+    assert result.error and "unreachable" in result.error
 
 
 @pytest.mark.parametrize(

@@ -19,7 +19,7 @@ async def test_registry_runs_registered_tool():
 async def test_registry_fails_closed_on_unknown_tool():
     result = await ToolRegistry([EchoTool()]).run("weather", "Madrid")
     assert not result.ok
-    assert "unknown tool" in result.error
+    assert result.error and "unknown tool" in result.error
 
 
 def test_store_returns_history_in_order():

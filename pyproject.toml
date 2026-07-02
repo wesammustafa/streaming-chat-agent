@@ -11,6 +11,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "mypy>=2.1.0",
     "pytest>=8",
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
@@ -21,6 +22,28 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.mypy]
+files = ["app", "tests"]
+python_version = "3.11"
+strict = true
+
+[[tool.mypy.overrides]]
+# Test fakes and fixtures stay unannotated on purpose; bodies are still checked.
+# tests/ is not a package, so modules are listed by name (wildcards need packages).
+module = [
+    "test_api_stream",
+    "test_assistant_service",
+    "test_calculator",
+    "test_golden_cases",
+    "test_model_selection",
+    "test_registry_and_store",
+    "test_rule_based_model",
+    "test_weather_tool",
+]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
 
 [tool.ruff]
 line-length = 100
