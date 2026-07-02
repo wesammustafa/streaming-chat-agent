@@ -13,8 +13,10 @@ import pytest
 
 from app.domain.actions import ToolCall
 from app.domain.messages import Message
-from app.domain.tools import ToolResult
+from app.domain.tools import ToolResult, ToolSpec
 from app.models.ollama import PLANNER_CONTEXT_MESSAGES, OllamaAssistantModel
+from app.tools.calculator import CalculatorTool
+from app.tools.weather import WeatherLookupTool
 
 
 def user(text: str) -> list[Message]:
@@ -32,12 +34,16 @@ def streaming_model(lines):
     )
 
 
-def capturing_model(payloads):
+def capturing_transport(payloads):
     def handler(request):
         payloads.append(json.loads(request.content))
         return httpx.Response(200, content=b'{"message": {"content": "ok"}}\n')
 
-    return OllamaAssistantModel(transport=httpx.MockTransport(handler))
+    return httpx.MockTransport(handler)
+
+
+def capturing_model(payloads):
+    return OllamaAssistantModel(transport=capturing_transport(payloads))
 
 
 async def test_stream_response_assembles_chunks_in_order():
@@ -118,6 +124,39 @@ async def test_planner_context_window_is_capped():
     assert len(sent) == 1 + PLANNER_CONTEXT_MESSAGES
     assert sent[1]["content"] == "message 4"
     assert sent[-1]["content"] == "message 9"
+
+
+async def test_planner_menu_is_built_from_registered_tool_specs():
+    payloads: list[dict[str, Any]] = []
+    specs = [ToolSpec(name="weather_lookup", description="Answers rooftop weather riddles")]
+    model = OllamaAssistantModel(transport=capturing_transport(payloads), tool_specs=specs)
+    await model.plan_next_action(user("hi"))
+    system = payloads[0]["messages"][0]["content"]
+    assert "Answers rooftop weather riddles" in system
+    assert "calculator" not in system  # unregistered tools drop off the menu
+
+
+async def test_planner_menu_omits_specs_it_cannot_validate():
+    payloads: list[dict[str, Any]] = []
+    specs = [
+        ToolSpec(name="gif_search", description="Finds a gif"),
+        CalculatorTool.spec,
+    ]
+    model = OllamaAssistantModel(transport=capturing_transport(payloads), tool_specs=specs)
+    await model.plan_next_action(user("hi"))
+    system = payloads[0]["messages"][0]["content"]
+    assert "gif_search" not in system
+    assert CalculatorTool.spec.description.rstrip(".") in system
+    assert '"action": "direct"' in system
+
+
+async def test_planner_menu_defaults_to_the_real_tool_specs():
+    payloads: list[dict[str, Any]] = []
+    model = capturing_model(payloads)
+    await model.plan_next_action(user("hi"))
+    system = payloads[0]["messages"][0]["content"]
+    assert CalculatorTool.spec.description.rstrip(".") in system
+    assert WeatherLookupTool.spec.description.rstrip(".") in system
 
 
 async def test_responder_prepends_system_prompt_and_maps_history():

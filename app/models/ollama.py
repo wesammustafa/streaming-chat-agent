@@ -10,14 +10,15 @@ a direct reply. The tools do all the actual work: the LLM never computes.
 
 import json
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 
 import httpx
 
 from app.domain.actions import DirectResponse, NextAction, ToolCall
 from app.domain.messages import Message
-from app.domain.tools import ToolResult
-from app.tools.calculator import validate_expression
+from app.domain.tools import ToolResult, ToolSpec
+from app.tools.calculator import CalculatorTool, validate_expression
+from app.tools.weather import WeatherLookupTool
 
 # Must match the registered tools' spec.name.
 CALCULATOR_TOOL_NAME = "calculator"
@@ -26,15 +27,37 @@ MAX_CITY_LENGTH = 80
 # Enough context to resolve follow-ups ("and in Lisbon?") without unbounded prompts.
 PLANNER_CONTEXT_MESSAGES = 6
 
-_PLANNER_PROMPT = (
-    "You classify the user's LAST message and pick one action. "
-    "Earlier messages are only context for resolving references. "
-    "Reply with JSON only, no other text, in exactly one of these shapes:\n"
-    '- Arithmetic to compute: {"action": "calculator", "expression": "<expression only>"}\n'
-    '- Current weather somewhere: {"action": "weather_lookup", "location": "<place>"}\n'
-    '- Anything else: {"action": "direct"}\n'
-    "For calculator, copy only the math expression (e.g. 15 * 23); never compute it yourself."
-)
+# The JSON shape per plannable tool; the adapter can only validate these two,
+# so specs with any other name never reach the menu (fail closed).
+_PLAN_SHAPES = {
+    CALCULATOR_TOOL_NAME: '{"action": "calculator", "expression": "<expression only>"}',
+    WEATHER_TOOL_NAME: '{"action": "weather_lookup", "location": "<place>"}',
+}
+
+# Standalone construction plans over the real tools' own specs; create_app
+# passes the actually registered specs instead, keeping the registry the truth.
+_DEFAULT_TOOL_SPECS = (CalculatorTool.spec, WeatherLookupTool.spec)
+
+
+def _planner_prompt(tool_specs: Sequence[ToolSpec]) -> str:
+    lines = [
+        f"- {spec.description.rstrip('.')}: {_PLAN_SHAPES[spec.name]}"
+        for spec in tool_specs
+        if spec.name in _PLAN_SHAPES
+    ]
+    lines.append('- Anything else: {"action": "direct"}')
+    prompt = (
+        "You classify the user's LAST message and pick one action. "
+        "Earlier messages are only context for resolving references. "
+        "Reply with JSON only, no other text, in exactly one of these shapes:\n"
+        + "\n".join(lines)
+    )
+    if any(spec.name == CALCULATOR_TOOL_NAME for spec in tool_specs):
+        prompt += (
+            "\nFor calculator, copy only the math expression (e.g. 15 * 23); "
+            "never compute it yourself."
+        )
+    return prompt
 
 _RESPONDER_PROMPT = (
     "You are a friendly, concise assistant. Always answer in the language the user wrote in."
@@ -50,12 +73,16 @@ class OllamaAssistantModel:
         model_name: str = "qwen2.5:7b",
         request_timeout_seconds: float = 120.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        tool_specs: Sequence[ToolSpec] | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model_name = model_name
         # Long read timeout: a 7B model can pause noticeably between tokens on first load.
         self._timeout = httpx.Timeout(request_timeout_seconds, connect=5.0)
         self._transport = transport  # injectable for offline tests
+        self._planner_prompt = _planner_prompt(
+            tool_specs if tool_specs is not None else _DEFAULT_TOOL_SPECS
+        )
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=self._timeout, transport=self._transport)
@@ -112,7 +139,7 @@ class OllamaAssistantModel:
             )
 
     def _planner_messages(self, messages: list[Message]) -> list[dict[str, str]]:
-        chat = [{"role": "system", "content": _PLANNER_PROMPT}]
+        chat = [{"role": "system", "content": self._planner_prompt}]
         chat.extend(
             {"role": m.role, "content": m.content}
             for m in messages[-PLANNER_CONTEXT_MESSAGES:]
