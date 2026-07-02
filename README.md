@@ -42,9 +42,9 @@ needed, no env vars required.
 
 Routes planning and replies through a local [Ollama](https://ollama.com)
 server for realistic multilingual chat. The LLM's only planning power is
-deciding whether to call `weather_lookup`, a local fixture-based demo tool;
-its plan is validated before execution and anything invalid falls back to a
-direct reply. Recommended model: Qwen2.5 7B Instruct.
+choosing between a `calculator` call, a `weather_lookup` call, or a direct
+reply; every proposed plan is validated before execution and anything invalid
+falls back to a direct reply. Recommended model: Qwen2.5 7B Instruct.
 
 ```bash
 ollama pull qwen2.5:7b
@@ -93,10 +93,11 @@ or error.
 uv run pytest
 ```
 
-118 tests across calculator, planner, service orchestration, HTTP API, golden
-cases, tools, and model selection, all offline with zero injected delays; the
-whole suite runs in well under two seconds and never requires Ollama. Lint
-with `uv run ruff check .`
+The suite spans calculator, planner, service orchestration, HTTP API, golden
+cases, tools, and model selection, all offline with zero injected delays; it
+runs in well under two seconds and never requires Ollama. CI runs the same
+checks on every push and pull request. Lint with `uv run ruff check .` and
+type-check with `uv run mypy`.
 
 ## API
 
