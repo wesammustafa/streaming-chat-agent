@@ -1,0 +1,12 @@
+{"message": "what is 2 + 2?", "expected_tool": "calculator", "must_include": ["2 + 2 = 4"], "must_not_include": ["couldn't compute"]}
+{"message": "calculate 10 / 4", "expected_tool": "calculator", "must_include": ["2.5"], "must_not_include": []}
+{"message": "how much is 10 / 2", "expected_tool": "calculator", "must_include": ["= 5"], "must_not_include": ["5.0"]}
+{"message": "compute 2.5 * 4", "expected_tool": "calculator", "must_include": ["= 10"], "must_not_include": ["10.0"]}
+{"message": "what is (10 - 4) * 2?", "expected_tool": "calculator", "must_include": ["= 12"], "must_not_include": []}
+{"message": "what is 5 - 8?", "expected_tool": "calculator", "must_include": ["-3"], "must_not_include": []}
+{"message": "2+2", "expected_tool": "calculator", "must_include": ["= 4"], "must_not_include": []}
+{"message": "1 / 0", "expected_tool": "calculator", "must_include": ["division by zero"], "must_not_include": ["="]}
+{"message": "hello!", "expected_tool": null, "must_include": ["Hi"], "must_not_include": ["="]}
+{"message": "I ate 2 apples", "expected_tool": null, "must_include": [], "must_not_include": ["="]}
+{"message": "route 66 - the song", "expected_tool": null, "must_include": [], "must_not_include": ["="]}
+{"message": "what is love", "expected_tool": null, "must_include": [], "must_not_include": ["="]}
