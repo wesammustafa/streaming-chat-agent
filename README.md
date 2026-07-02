@@ -56,8 +56,21 @@ ASSISTANT_MODEL=ollama uv run uvicorn app.main:app
 | `ASSISTANT_MODEL` | `deterministic` | `deterministic` or `ollama` |
 | `OLLAMA_MODEL` | `qwen2.5:7b` | Ollama model tag to use |
 | `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server address |
+| `WEATHER_SOURCE` | `fixture` | `fixture` (ten canned cities) or `live` (Open-Meteo) |
 
 Try: `what's the weather in Madrid?` or `¿qué tiempo hace en Lisboa?`
+
+`WEATHER_SOURCE=live` swaps the fixture for real current weather from
+[Open-Meteo](https://open-meteo.com) (free, no API key), for any city its
+geocoder knows:
+
+```bash
+ASSISTANT_MODEL=ollama WEATHER_SOURCE=live uv run uvicorn app.main:app
+```
+
+Both weather tools answer to the same `weather_lookup` name, so the model
+never knows which one is wired. The fixture remains the default; tests never
+touch the network.
 
 Notes: Ollama mode exists for local demo realism, not production reliability.
 It is non-deterministic and excluded from the test suite and CI, which always
@@ -116,7 +129,7 @@ app/
   domain/       messages, actions, stream events, tool contracts
   services/     assistant orchestration, tool registry, conversation store
   models/       AssistantModel protocol + rule-based default + optional Ollama adapter
-  tools/        AST-validated calculator, fixture-based weather lookup
+  tools/        AST-validated calculator, fixture + live Open-Meteo weather lookups
   static/       index.html + app.js
 tests/          five test layers + golden cases (tests/cases/basic.jsonl)
 ```

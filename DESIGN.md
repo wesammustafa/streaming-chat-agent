@@ -39,7 +39,7 @@ Main runtime components:
 - `POST /api/chat/stream` (app/api/chat.py, app/main.py): validates input, streams typed `StreamEvent`s as NDJSON, guarantees exactly one terminal event per stream.
 - `AssistantService.stream_reply` (app/services/assistant.py): persists the user message, plans, runs at most one tool under a timeout, streams reply text, persists the assistant message on completion.
 - `RuleBasedAssistantModel` (app/models/rule_based.py): plans via regex intent detection plus AST pre-validation and owns every user-facing string.
-- `ToolRegistry` + `CalculatorTool` + `WeatherLookupTool` (app/services/tool_registry.py, app/tools/): dict-lookup tool dispatch that fails closed on unknown names; arithmetic evaluated over a whitelisted AST, weather served from a deterministic fixture.
+- `ToolRegistry` + `CalculatorTool` + `WeatherLookupTool` (app/services/tool_registry.py, app/tools/): dict-lookup tool dispatch that fails closed on unknown names; arithmetic evaluated over a whitelisted AST, weather served from a deterministic fixture (or live Open-Meteo when WEATHER_SOURCE=live; same tool name, so planners cannot tell).
 - Static frontend (app/static/app.js): parses the NDJSON stream incrementally and renders the streaming bubble plus a live tool status pill.
 
 ### Reply orchestration
@@ -121,7 +121,8 @@ flowchart LR
   RB[RuleBasedAssistantModel<br/>default, all user-facing copy]:::adapter -.-> PM
   OL[OllamaAssistantModel<br/>optional local LLM, validated plans]:::adapter -.-> PM
   CALC[CalculatorTool<br/>AST whitelist]:::adapter -.-> PT
-  WX[WeatherLookupTool<br/>deterministic fixture]:::adapter -.-> PT
+  WX[WeatherLookupTool<br/>fixture, default]:::adapter -.-> PT
+  LIVE[LiveWeatherTool<br/>Open-Meteo, WEATHER_SOURCE=live]:::adapter -.-> PT
   IM[InMemoryConversationStore<br/>history cap]:::adapter -.-> PS
   PG[Postgres/Redis store<br/>deferred]:::deferred -.-> PS
 

@@ -15,6 +15,7 @@ from app.services.conversation_store import ConversationStore, InMemoryConversat
 from app.services.tool_registry import ToolRegistry
 from app.tools.calculator import CalculatorTool
 from app.tools.weather import WeatherLookupTool
+from app.tools.weather_live import LiveWeatherTool
 
 
 def create_app(
@@ -26,9 +27,7 @@ def create_app(
     service = AssistantService(
         model=model if model is not None else model_from_env(),
         store=store if store is not None else InMemoryConversationStore(),
-        registry=ToolRegistry(
-            tools if tools is not None else [CalculatorTool(), WeatherLookupTool()]
-        ),
+        registry=ToolRegistry(tools if tools is not None else tools_from_env()),
     )
     app = FastAPI(title="Streaming Chat Agent")
     app.include_router(build_chat_router(service))
@@ -51,6 +50,18 @@ def model_from_env() -> AssistantModel:
             model_name=os.environ.get("OLLAMA_MODEL", "qwen2.5:7b"),
         )
     raise ValueError(f"unknown ASSISTANT_MODEL {choice!r}: use 'deterministic' or 'ollama'")
+
+
+def tools_from_env() -> list[Tool]:
+    """WEATHER_SOURCE selects the weather adapter; the fixture is the default and CI target."""
+    source = os.environ.get("WEATHER_SOURCE", "fixture").strip().lower()
+    if source == "fixture":
+        weather: Tool = WeatherLookupTool()
+    elif source == "live":
+        weather = LiveWeatherTool()
+    else:
+        raise ValueError(f"unknown WEATHER_SOURCE {source!r}: use 'fixture' or 'live'")
+    return [CalculatorTool(), weather]
 
 
 def _validation_error_to_400(request: Request, exc: Exception) -> JSONResponse:
