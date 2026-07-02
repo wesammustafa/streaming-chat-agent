@@ -13,6 +13,7 @@ from app.services.assistant import AssistantService
 from app.services.conversation_store import ConversationStore, InMemoryConversationStore
 from app.services.tool_registry import ToolRegistry
 from app.tools.calculator import CalculatorTool
+from app.tools.weather import WeatherLookupTool
 
 
 def create_app(
@@ -24,7 +25,9 @@ def create_app(
     service = AssistantService(
         model=model if model is not None else RuleBasedAssistantModel(),
         store=store if store is not None else InMemoryConversationStore(),
-        registry=ToolRegistry(tools if tools is not None else [CalculatorTool()]),
+        registry=ToolRegistry(
+            tools if tools is not None else [CalculatorTool(), WeatherLookupTool()]
+        ),
     )
     app = FastAPI(title="Streaming Chat Agent")
     app.include_router(build_chat_router(service))
