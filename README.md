@@ -24,9 +24,46 @@ Without uv:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install fastapi uvicorn
+pip install fastapi uvicorn httpx
 uvicorn app.main:app
 ```
+
+## Model modes
+
+`ASSISTANT_MODEL` selects the assistant model at startup.
+
+### deterministic (default)
+
+The rule-based planner plus the calculator tool. Fully offline and
+reproducible; this is what the test suite and CI always run against. No setup
+needed, no env vars required.
+
+### ollama (optional, local LLM)
+
+Routes planning and replies through a local [Ollama](https://ollama.com)
+server for realistic multilingual chat. The LLM's only planning power is
+deciding whether to call `weather_lookup`, a local fixture-based demo tool;
+its plan is validated before execution and anything invalid falls back to a
+direct reply. Recommended model: Qwen2.5 7B Instruct.
+
+```bash
+ollama pull qwen2.5:7b
+ASSISTANT_MODEL=ollama uv run uvicorn app.main:app
+```
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ASSISTANT_MODEL` | `deterministic` | `deterministic` or `ollama` |
+| `OLLAMA_MODEL` | `qwen2.5:7b` | Ollama model tag to use |
+| `OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama server address |
+
+Try: `what's the weather in Madrid?` or `¿qué tiempo hace en Lisboa?`
+
+Notes: Ollama mode exists for local demo realism, not production reliability.
+It is non-deterministic and excluded from the test suite and CI, which always
+use the deterministic model. The weather data itself is local, fake, and
+deterministic. No API keys, no paid services. If the Ollama server is not
+running, the assistant replies with setup guidance instead of failing.
 
 ## Try these prompts
 
@@ -43,9 +80,10 @@ or error.
 uv run pytest
 ```
 
-97 tests in five layers (calculator, planner, service orchestration, HTTP API,
-golden cases), all offline with zero injected delays; the whole suite runs in
-well under two seconds. Lint with `uv run ruff check .`
+118 tests across calculator, planner, service orchestration, HTTP API, golden
+cases, tools, and model selection, all offline with zero injected delays; the
+whole suite runs in well under two seconds and never requires Ollama. Lint
+with `uv run ruff check .`
 
 ## API
 
@@ -77,8 +115,8 @@ app/
   api/          HTTP layer: validation, streaming response, terminal-event wrapper
   domain/       messages, actions, stream events, tool contracts
   services/     assistant orchestration, tool registry, conversation store
-  models/       AssistantModel protocol + rule-based implementation (all copy lives here)
-  tools/        AST-validated calculator
+  models/       AssistantModel protocol + rule-based default + optional Ollama adapter
+  tools/        AST-validated calculator, fixture-based weather lookup
   static/       index.html + app.js
 tests/          five test layers + golden cases (tests/cases/basic.jsonl)
 ```

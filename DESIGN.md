@@ -25,8 +25,12 @@ the protocols.
 
 The planner reuses the calculator's own validator, so planner and executor
 agree by construction. A real LLM adapter slots in by implementing
-`AssistantModel`; both protocol methods are async-shaped for exactly that.
-Tests keep running against the deterministic default either way.
+`AssistantModel`; both protocol methods are async-shaped for exactly that,
+and the optional `OllamaAssistantModel` (selected with `ASSISTANT_MODEL=ollama`,
+see README) demonstrates the swap: it may only propose the fixture-based
+`weather_lookup` tool, its plan is validated before execution, and invalid
+output falls back to a direct reply. Tests keep running against the
+deterministic default either way.
 
 ## Diagrams
 
@@ -35,7 +39,7 @@ Main runtime components:
 - `POST /api/chat/stream` (app/api/chat.py, app/main.py): validates input, streams typed `StreamEvent`s as NDJSON, guarantees exactly one terminal event per stream.
 - `AssistantService.stream_reply` (app/services/assistant.py): persists the user message, plans, runs at most one tool under a timeout, streams reply text, persists the assistant message on completion.
 - `RuleBasedAssistantModel` (app/models/rule_based.py): plans via regex intent detection plus AST pre-validation and owns every user-facing string.
-- `ToolRegistry` + `CalculatorTool` (app/services/tool_registry.py, app/tools/calculator.py): dict-lookup tool dispatch that fails closed on unknown names; arithmetic evaluated over a whitelisted AST.
+- `ToolRegistry` + `CalculatorTool` + `WeatherLookupTool` (app/services/tool_registry.py, app/tools/): dict-lookup tool dispatch that fails closed on unknown names; arithmetic evaluated over a whitelisted AST, weather served from a deterministic fixture.
 - Static frontend (app/static/app.js): parses the NDJSON stream incrementally and renders the streaming bubble plus a live tool status pill.
 
 ### Reply orchestration
@@ -114,13 +118,14 @@ flowchart LR
 
   API --> SVC
 
-  RB[RuleBasedAssistantModel<br/>planning + all user-facing copy]:::adapter -.-> PM
-  LLM[LLM adapter<br/>deferred]:::deferred -.-> PM
+  RB[RuleBasedAssistantModel<br/>default, all user-facing copy]:::adapter -.-> PM
+  OL[OllamaAssistantModel<br/>optional local LLM, validated plans]:::adapter -.-> PM
   CALC[CalculatorTool<br/>AST whitelist]:::adapter -.-> PT
+  WX[WeatherLookupTool<br/>deterministic fixture]:::adapter -.-> PT
   IM[InMemoryConversationStore<br/>history cap]:::adapter -.-> PS
   PG[Postgres/Redis store<br/>deferred]:::deferred -.-> PS
 
-  ROOT[create_app<br/>composition root]:::driver -. wires production defaults;<br/>tests inject ScriptedModel and fake tools .-> SVC
+  ROOT[create_app<br/>composition root]:::driver -. wires by ASSISTANT_MODEL env;<br/>tests inject ScriptedModel and fake tools .-> SVC
 ```
 
 Source: app/main.py, app/services/assistant.py, app/models/protocol.py, app/models/rule_based.py, app/services/tool_registry.py, app/services/conversation_store.py, app/tools/calculator.py, tests/test_assistant_service.py.
@@ -172,7 +177,8 @@ Source: app/services/assistant.py, app/api/chat.py, tests/test_api_stream.py.
 **Deterministic model over a real LLM.** The exercise is the architecture
 around the model, not the model. A rule-based planner keeps every test offline
 and reproducible; an LLM becomes an implementation of an existing seam, not a
-redesign.
+redesign. The optional local Ollama adapter proves the point without changing
+the default: demo realism when you want it, determinism everywhere it counts.
 
 **NDJSON over POST instead of SSE or WebSockets.** One request per message is
 the simplest contract that still demonstrates real streaming. SSE brings
@@ -232,9 +238,10 @@ is only cheaper if it does not increase retries and failures.
 
 ## Explicit deferrals
 
-- Real LLM adapter (implements `AssistantModel`; tests stay deterministic)
+- Production LLM serving (hosted providers, retries, evals; a local Ollama
+  demo adapter exists, tests stay deterministic)
 - Multi-step tool loops (one plan per reply today)
-- Additional tools beyond the calculator
+- Additional tools beyond the calculator and the fixture-based weather lookup
 - Postgres/Redis persistence behind `ConversationStore`
 - Background jobs and queues
 - Auth and rate limiting
