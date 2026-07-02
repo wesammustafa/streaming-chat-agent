@@ -1,31 +1,60 @@
 const form = document.getElementById("chat-form");
 const input = document.getElementById("chat-input");
 const sendButton = document.getElementById("send-button");
-const messages = document.getElementById("messages");
+const scroller = document.getElementById("messages");
+const column = document.getElementById("column");
+const emptyState = document.getElementById("empty-state");
+
+const SPARK_ICON =
+  '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
+  '<path d="M8 0c.5 4.2 3.3 7 7.5 7.5v1C11.3 9 8.5 11.8 8 16c-.5-4.2-3.3-7-7.5-7.5v-1C4.7 7 7.5 4.2 8 0z"/></svg>';
 
 let conversationId = null;
 let streaming = false;
 
-form.addEventListener("submit", async (event) => {
+form.addEventListener("submit", (event) => {
   event.preventDefault();
+  send();
+});
+
+input.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    send();
+  }
+});
+
+input.addEventListener("input", autosize);
+
+document.querySelectorAll(".suggestions .chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    input.value = chip.textContent;
+    send();
+  });
+});
+
+async function send() {
   const text = input.value.trim();
   if (!text || streaming) return;
 
   setStreaming(true);
+  emptyState.hidden = true;
   input.value = "";
-  addUserBubble(text);
-  const assistant = addAssistantBubble();
+  autosize();
+  addUserMessage(text);
+  const assistant = addAssistantMessage();
 
   try {
     await streamReply(text, assistant);
   } catch {
-    assistant.text.textContent = "Something went wrong. Please try again.";
-    assistant.bubble.classList.add("error-bubble");
+    assistant.text.textContent = "Something went wrong. Check the server and try again.";
+    assistant.text.classList.add("reply-error");
   } finally {
+    assistant.text.classList.remove("streaming");
     setStreaming(false);
     input.focus();
   }
-});
+}
 
 async function streamReply(text, assistant) {
   const response = await fetch("/api/chat/stream", {
@@ -58,49 +87,72 @@ function handleEvent(event, assistant) {
       break;
     case "text_delta":
       assistant.text.textContent += event.text;
-      scrollToBottom();
+      stickToBottom();
       break;
     case "tool_start":
-      setToolStatus(assistant, "running", `${event.tool_name} running…`);
+      setToolChip(assistant, "running", `Running ${event.tool_name}`, null);
       break;
     case "tool_result":
-      setToolStatus(assistant, "ok", `${event.tool_name}: ${event.result}`);
+      setToolChip(assistant, "ok", event.tool_name, event.result);
       break;
     case "tool_error":
-      setToolStatus(assistant, "failed", `${event.tool_name}: ${event.error}`);
+      setToolChip(assistant, "failed", event.tool_name, event.error);
       break;
     case "error":
       assistant.text.textContent = "The assistant hit an internal error.";
-      assistant.bubble.classList.add("error-bubble");
+      assistant.text.classList.add("reply-error");
       break;
     case "message_done":
       break;
   }
 }
 
-function addUserBubble(text) {
-  const bubble = document.createElement("div");
-  bubble.className = "bubble user";
-  bubble.textContent = text; // textContent everywhere: user/model text is never HTML
-  messages.appendChild(bubble);
-  scrollToBottom();
+function addUserMessage(text) {
+  const row = document.createElement("article");
+  row.className = "msg user";
+  const body = document.createElement("div");
+  body.className = "msg-text";
+  body.textContent = text; // textContent everywhere: user/model text is never HTML
+  row.appendChild(body);
+  column.appendChild(row);
+  stickToBottom(true);
 }
 
-function addAssistantBubble() {
-  const bubble = document.createElement("div");
-  bubble.className = "bubble assistant";
-  const status = document.createElement("span");
-  status.className = "tool-status";
+function addAssistantMessage() {
+  const row = document.createElement("article");
+  row.className = "msg assistant";
+
+  const avatar = document.createElement("div");
+  avatar.className = "avatar";
+  avatar.innerHTML = SPARK_ICON; // static markup constant, never user data
+
+  const body = document.createElement("div");
+  body.className = "msg-body";
+  const chip = document.createElement("div");
+  chip.className = "tool-chip";
+  chip.hidden = true;
+  const dot = document.createElement("span");
+  dot.className = "dot";
+  const label = document.createElement("span");
+  const detail = document.createElement("code");
+  chip.append(dot, label, detail);
+
   const text = document.createElement("div");
-  bubble.append(status, text);
-  messages.appendChild(bubble);
-  scrollToBottom();
-  return { bubble, status, text };
+  text.className = "msg-text streaming";
+
+  body.append(chip, text);
+  row.append(avatar, body);
+  column.appendChild(row);
+  stickToBottom(true);
+  return { chip, label, detail, text };
 }
 
-function setToolStatus(assistant, state, label) {
-  assistant.status.className = `tool-status ${state}`;
-  assistant.status.textContent = label;
+function setToolChip(assistant, state, labelText, detailText) {
+  assistant.chip.hidden = false;
+  assistant.chip.className = `tool-chip ${state}`;
+  assistant.label.textContent = labelText;
+  assistant.detail.textContent = detailText ?? "";
+  stickToBottom();
 }
 
 function setStreaming(value) {
@@ -109,6 +161,13 @@ function setStreaming(value) {
   sendButton.disabled = value;
 }
 
-function scrollToBottom() {
-  messages.scrollTop = messages.scrollHeight;
+function autosize() {
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 168)}px`;
+}
+
+function stickToBottom(force = false) {
+  const nearBottom =
+    scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 120;
+  if (force || nearBottom) scroller.scrollTop = scroller.scrollHeight;
 }
