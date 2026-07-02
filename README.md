@@ -1,8 +1,9 @@
 # Streaming Chat Agent
 
-A minimal chat assistant that streams its replies over NDJSON and can call a
-calculator tool mid-conversation. FastAPI backend, dependency-free HTML/JS
-frontend, deterministic rule-based model, fully offline test suite.
+A minimal chat assistant that streams its replies over NDJSON and can call
+tools mid-conversation: an AST-validated calculator and a weather lookup.
+FastAPI backend, dependency-free HTML/JS frontend, deterministic rule-based
+model by default with an optional local-LLM mode, fully offline test suite.
 
 The design goal: the smallest version that exercises the real architecture of
 a streaming, tool-calling assistant. Component boundaries, error paths, and
@@ -88,7 +89,8 @@ running, the assistant replies with setup guidance instead of failing.
 - `hello!` plain chat, no tool involved
 
 The pill above the assistant's reply shows live tool status: running, result,
-or error.
+or error. While a reply streams, the send button becomes a stop button;
+stopping keeps the partial text on screen and drops it from history.
 
 ## Test
 
@@ -117,17 +119,20 @@ ASSISTANT_MODEL=ollama uv run python run_evals.py
 
 `POST /api/chat/stream` with `{"message": "...", "conversation_id": "..."}`.
 `conversation_id` is optional; the server generates one and returns it in the
-first event. The response is `application/x-ndjson`, one event per line:
+first event. The response is `application/x-ndjson`, one event per line.
+Here `what's the weather in Lisbon?` under the ollama model; the wire format
+is identical for every model and tool:
 
 ```text
 {"type":"message_start","conversation_id":"..."}
-{"type":"tool_start","tool_name":"calculator"}
-{"type":"tool_result","tool_name":"calculator","result":"12"}
-{"type":"text_delta","text":"(10 - 4) "}
-{"type":"text_delta","text":"* "}
-{"type":"text_delta","text":"2 "}
-{"type":"text_delta","text":"= "}
-{"type":"text_delta","text":"12"}
+{"type":"tool_start","tool_name":"weather_lookup"}
+{"type":"tool_result","tool_name":"weather_lookup","result":"Lisbon: 24°C, breezy"}
+{"type":"text_delta","text":"Right "}
+{"type":"text_delta","text":"now "}
+{"type":"text_delta","text":"it's "}
+{"type":"text_delta","text":"24°C "}
+{"type":"text_delta","text":"and breezy "}
+{"type":"text_delta","text":"in Lisbon."}
 {"type":"message_done","conversation_id":"..."}
 ```
 
@@ -146,5 +151,7 @@ app/
   models/       AssistantModel protocol + rule-based default + optional Ollama adapter
   tools/        AST-validated calculator, fixture + live Open-Meteo weather lookups
   static/       index.html + app.js
-tests/          five test layers + golden cases (tests/cases/basic.jsonl)
+tests/          offline unit, service, API, adapter, and golden-case layers
+run_evals.py    golden-case eval CLI (see Evals)
+.github/        CI: ruff, mypy, pytest on every push and pull request
 ```

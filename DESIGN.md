@@ -6,9 +6,9 @@ Dependency rule: `api -> AssistantService -> protocols`; adapters implement
 the protocols.
 
 - `AssistantService.stream_reply` is the orchestrator: emit `message_start`,
-  persist the user message, ask the model to plan, maybe run one tool through
-  the registry (with a timeout), then let the model stream the reply text and
-  persist it on successful completion.
+  take the conversation's lock, persist the user message, ask the model to
+  plan, maybe run one tool through the registry (with a timeout), then let the
+  model stream the reply text and persist it on successful completion.
 - `AssistantModel` (protocol): `plan_next_action` returns a `ToolCall` or a
   `DirectResponse`; `stream_response` is the single authority for user-facing
   text on both paths. The service contains no copy at all, which is what makes
@@ -38,10 +38,10 @@ way.
 Main runtime components:
 
 - `POST /api/chat/stream` (app/api/chat.py, app/main.py): validates input, streams typed `StreamEvent`s as NDJSON, guarantees exactly one terminal event per stream.
-- `AssistantService.stream_reply` (app/services/assistant.py): persists the user message, plans, runs at most one tool under a timeout, streams reply text, persists the assistant message on completion.
+- `AssistantService.stream_reply` (app/services/assistant.py): serializes replies per conversation, persists the user message, plans, runs at most one tool under a timeout, streams reply text, persists the assistant message on completion.
 - `RuleBasedAssistantModel` (app/models/rule_based.py): plans via regex intent detection plus AST pre-validation and owns every user-facing string.
 - `ToolRegistry` + `CalculatorTool` + `WeatherLookupTool` (app/services/tool_registry.py, app/tools/): dict-lookup tool dispatch that fails closed on unknown names; arithmetic evaluated over a whitelisted AST, weather served from a deterministic fixture (or live Open-Meteo when WEATHER_SOURCE=live; same tool name, so validated plans route identically).
-- Static frontend (app/static/app.js): parses the NDJSON stream incrementally and renders the streaming bubble plus a live tool status pill.
+- Static frontend (app/static/app.js): parses the NDJSON stream incrementally, renders the streaming bubble plus a live tool status pill, and aborts an in-flight reply from the stop button.
 
 ### Reply orchestration
 
@@ -61,6 +61,7 @@ sequenceDiagram
   Note over A: validates request (400 before streaming),<br/>serializes events as NDJSON,<br/>guarantees exactly one terminal event
   A->>S: stream_reply(conversation_id, text)
   S-->>C: message_start
+  Note over S,D: per-conversation lock acquired,<br/>held until the reply persists
   S->>D: append user message, read history
   S->>M: plan_next_action(history)
   M-->>S: ToolCall or DirectResponse
@@ -198,7 +199,7 @@ message content.
 **Disconnect policy.** A client disconnect raises `CancelledError` inside the
 generator and is not swallowed: the user message is already persisted, the
 assistant message persists only on successful completion. Partial replies are
-dropped, never half-saved.
+dropped, never half-saved. The UI's stop button exercises exactly this path.
 
 **In-memory store, capped.** A protocol boundary with a history cap keeps
 memory bounded. Replies are serialized per conversation with an asyncio lock
