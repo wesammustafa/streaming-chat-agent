@@ -1,6 +1,9 @@
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.chat import build_chat_router
 from app.domain.tools import Tool
@@ -26,6 +29,8 @@ def create_app(
     app = FastAPI(title="Streaming Chat Agent")
     app.include_router(build_chat_router(service))
     app.add_exception_handler(RequestValidationError, _validation_error_to_400)
+    # Mounted last so /api routes win; html=True serves index.html at /.
+    app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True))
     return app
 
 
