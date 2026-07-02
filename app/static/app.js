@@ -5,9 +5,12 @@ const scroller = document.getElementById("messages");
 const column = document.getElementById("column");
 const emptyState = document.getElementById("empty-state");
 
-const SPARK_ICON =
+const ASSISTANT_ICON =
   '<svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">' +
-  '<path d="M8 0c.5 4.2 3.3 7 7.5 7.5v1C11.3 9 8.5 11.8 8 16c-.5-4.2-3.3-7-7.5-7.5v-1C4.7 7 7.5 4.2 8 0z"/></svg>';
+  '<path fill-rule="evenodd" d="M4.25 1h7.5A3.25 3.25 0 0 1 15 4.25v4a3.25 3.25 0 0 1' +
+  '-3.25 3.25H8l-3.5 3v-3h-.25A3.25 3.25 0 0 1 1 8.25v-4A3.25 3.25 0 0 1 4.25 1z' +
+  'M5 5.1a1.15 1.15 0 1 0 0 2.3 1.15 1.15 0 1 0 0-2.3zm3 0a1.15 1.15 0 1 0 0 2.3 ' +
+  '1.15 1.15 0 1 0 0-2.3zm3 0a1.15 1.15 0 1 0 0 2.3 1.15 1.15 0 1 0 0-2.3z"/></svg>';
 
 let conversationId = null;
 let streaming = false;
@@ -136,7 +139,7 @@ function addAssistantMessage() {
 
   const avatar = document.createElement("div");
   avatar.className = "avatar";
-  avatar.innerHTML = SPARK_ICON; // static markup constant, never user data
+  avatar.innerHTML = ASSISTANT_ICON; // static markup constant, never user data
 
   const body = document.createElement("div");
   body.className = "msg-body";
