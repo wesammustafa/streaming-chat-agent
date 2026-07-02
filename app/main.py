@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -23,7 +24,7 @@ def create_app(
 ) -> FastAPI:
     """Composition root: production defaults, injectable fakes for tests."""
     service = AssistantService(
-        model=model if model is not None else RuleBasedAssistantModel(),
+        model=model if model is not None else model_from_env(),
         store=store if store is not None else InMemoryConversationStore(),
         registry=ToolRegistry(
             tools if tools is not None else [CalculatorTool(), WeatherLookupTool()]
@@ -35,6 +36,21 @@ def create_app(
     # Mounted last so /api routes win; html=True serves index.html at /.
     app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True))
     return app
+
+
+def model_from_env() -> AssistantModel:
+    """ASSISTANT_MODEL selects the adapter; deterministic is the default and CI target."""
+    choice = os.environ.get("ASSISTANT_MODEL", "deterministic").strip().lower()
+    if choice == "deterministic":
+        return RuleBasedAssistantModel()
+    if choice == "ollama":
+        from app.models.ollama import OllamaAssistantModel
+
+        return OllamaAssistantModel(
+            base_url=os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434"),
+            model_name=os.environ.get("OLLAMA_MODEL", "qwen2.5:7b"),
+        )
+    raise ValueError(f"unknown ASSISTANT_MODEL {choice!r}: use 'deterministic' or 'ollama'")
 
 
 def _validation_error_to_400(request: Request, exc: Exception) -> JSONResponse:
