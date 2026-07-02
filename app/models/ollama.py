@@ -2,8 +2,10 @@
 
 Demo realism only: non-deterministic, never used by tests or CI. The
 deterministic RuleBasedAssistantModel stays the default everywhere. The LLM
-is only trusted to decide whether a weather_lookup tool call is useful; its
-plan is validated here and anything invalid falls back to a direct reply.
+only classifies the message into a calculator call, a weather_lookup call, or
+a direct reply; every proposed plan is validated here (calculator expressions
+with the same AST whitelist the tool uses) and anything invalid falls back to
+a direct reply. The tools do all the actual work: the LLM never computes.
 """
 
 import json
@@ -15,16 +17,20 @@ import httpx
 from app.domain.actions import DirectResponse, NextAction, ToolCall
 from app.domain.messages import Message
 from app.domain.tools import ToolResult
+from app.tools.calculator import validate_expression
 
+# Must match the registered tools' spec.name.
+CALCULATOR_TOOL_NAME = "calculator"
 WEATHER_TOOL_NAME = "weather_lookup"
 MAX_CITY_LENGTH = 80
 
 _PLANNER_PROMPT = (
-    "You route chat messages. Decide if the user's LAST message is a simple question "
-    "about the current weather in a specific city.\n"
-    'If it is, reply exactly: {"action": "weather_lookup", "city": "<city name>"}\n'
-    'Otherwise reply exactly: {"action": "direct"}\n'
-    "Reply with that JSON only, no other text."
+    "You classify the user's LAST message and pick one action. "
+    "Reply with JSON only, no other text, in exactly one of these shapes:\n"
+    '- Arithmetic to compute: {"action": "calculator", "expression": "<expression only>"}\n'
+    '- Current weather somewhere: {"action": "weather_lookup", "location": "<place>"}\n'
+    '- Anything else: {"action": "direct"}\n'
+    "For calculator, copy only the math expression (e.g. 15 * 23); never compute it yourself."
 )
 
 _RESPONDER_PROMPT = (
@@ -107,15 +113,20 @@ class OllamaAssistantModel:
         chat.extend({"role": m.role, "content": m.content} for m in messages)
         if tool_result is not None:
             if tool_result.ok:
-                note = f"Weather tool result: {tool_result.content}. Answer using it."
+                note = f"Tool result: {tool_result.content}. Answer using it."
             else:
-                note = f"The weather tool failed ({tool_result.error}). Briefly say so."
+                note = f"The tool failed ({tool_result.error}). Briefly say so."
             chat.append({"role": "system", "content": note})
         return chat
 
 
 def parse_plan(raw_plan: str) -> NextAction:
-    """Validate the LLM's tool plan; anything unexpected becomes a direct response."""
+    """Validate the LLM's tool plan; anything unexpected becomes a direct response.
+
+    The LLM only proposes. For calculator, the extracted expression is validated
+    with the calculator's own AST whitelist before we emit a ToolCall, so the
+    tool stays the only thing that actually computes.
+    """
     match = re.search(r"\{.*\}", raw_plan, re.S)
     if match is None:
         return DirectResponse()
@@ -123,12 +134,30 @@ def parse_plan(raw_plan: str) -> NextAction:
         plan = json.loads(match.group())
     except json.JSONDecodeError:
         return DirectResponse()
-    if not isinstance(plan, dict) or plan.get("action") != WEATHER_TOOL_NAME:
+    if not isinstance(plan, dict):
         return DirectResponse()
-    city = plan.get("city")
-    if not isinstance(city, str):
+    if plan.get("action") == CALCULATOR_TOOL_NAME:
+        return _calculator_call(plan.get("expression"))
+    if plan.get("action") == WEATHER_TOOL_NAME:
+        # Accept "location" (current shape) or "city" (older shape).
+        return _weather_call(plan.get("location") or plan.get("city"))
+    return DirectResponse()
+
+
+def _calculator_call(expression: object) -> NextAction:
+    if not isinstance(expression, str):
         return DirectResponse()
-    city = city.strip()
-    if not city or len(city) > MAX_CITY_LENGTH:
+    expression = expression.strip()
+    # Same validator the deterministic planner uses; the tool still recomputes.
+    if validate_expression(expression) is not None:
         return DirectResponse()
-    return ToolCall(tool_name=WEATHER_TOOL_NAME, tool_input=city)
+    return ToolCall(tool_name=CALCULATOR_TOOL_NAME, tool_input=expression)
+
+
+def _weather_call(location: object) -> NextAction:
+    if not isinstance(location, str):
+        return DirectResponse()
+    location = location.strip()
+    if not location or len(location) > MAX_CITY_LENGTH:
+        return DirectResponse()
+    return ToolCall(tool_name=WEATHER_TOOL_NAME, tool_input=location)
