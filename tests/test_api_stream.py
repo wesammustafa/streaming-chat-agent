@@ -92,6 +92,10 @@ BAD_REQUESTS = [
     {"message": "   "},
     {"message": "x" * 4001},
     {"message": "hi", "conversation_id": "c" * 65},
+    {"message": "hi", "conversation_id": "line\nbreak"},  # log forgery attempt
+    {"message": "hi", "conversation_id": "ok\n"},  # trailing newline must not slip past $
+    {"message": "hi", "conversation_id": "with space"},
+    {"message": "hi", "conversation_id": "café"},
     {},
 ]
 

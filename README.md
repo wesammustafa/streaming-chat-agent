@@ -118,8 +118,8 @@ first event. The response is `application/x-ndjson`, one event per line:
 ```
 
 Every stream ends in exactly one terminal event: `message_done` or `error`.
-Invalid input (empty or oversized message, oversized conversation id) gets a
-400 before any streaming starts.
+Invalid input (empty or oversized message, malformed conversation id; ids are
+`[A-Za-z0-9_-]`, max 64 chars) gets a 400 before any streaming starts.
 
 ## Layout
 

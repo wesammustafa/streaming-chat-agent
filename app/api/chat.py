@@ -19,7 +19,11 @@ NDJSON_MEDIA_TYPE = "application/x-ndjson"
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=MAX_MESSAGE_LENGTH)
     conversation_id: str | None = Field(
-        default=None, min_length=1, max_length=MAX_CONVERSATION_ID_LENGTH
+        default=None,
+        min_length=1,
+        max_length=MAX_CONVERSATION_ID_LENGTH,
+        # Url-safe ids only: keeps logs unforgeable and ids boring everywhere.
+        pattern=r"^[A-Za-z0-9_-]+$",
     )
 
     @field_validator("message")
