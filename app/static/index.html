@@ -195,9 +195,11 @@
       cursor: pointer;
       transition: background 120ms ease, transform 120ms ease;
     }
-    #send-button:hover:not(:disabled) { background: #0b5a4e; }
-    #send-button:active:not(:disabled) { transform: scale(0.94); }
-    #send-button:disabled { background: var(--line); color: var(--muted); cursor: default; }
+    #send-button:hover { background: #0b5a4e; }
+    #send-button:active { transform: scale(0.94); }
+    #send-button .icon-stop { display: none; }
+    #send-button.stop .icon-send { display: none; }
+    #send-button.stop .icon-stop { display: block; }
     textarea:disabled { color: var(--muted); }
     .composer-hint {
       max-width: 720px;
@@ -265,8 +267,11 @@
       <form id="chat-form" class="composer">
         <textarea id="chat-input" rows="1" dir="auto" placeholder="Message the assistant" maxlength="4000" autocomplete="off"></textarea>
         <button id="send-button" type="submit" aria-label="Send message">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg class="icon-send" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M8 13V3m0 0L3.5 7.5M8 3l4.5 4.5"/>
+          </svg>
+          <svg class="icon-stop" width="10" height="10" viewBox="0 0 10 10" fill="currentColor" aria-hidden="true">
+            <rect width="10" height="10" rx="2"/>
           </svg>
         </button>
       </form>

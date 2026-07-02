@@ -11,9 +11,14 @@ const SPARK_ICON =
 
 let conversationId = null;
 let streaming = false;
+let controller = null;
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
+  if (streaming) {
+    controller?.abort(); // the send button doubles as Stop while streaming
+    return;
+  }
   send();
 });
 
@@ -37,6 +42,7 @@ async function send() {
   const text = input.value.trim();
   if (!text || streaming) return;
 
+  controller = new AbortController();
   setStreaming(true);
   emptyState.hidden = true;
   input.value = "";
@@ -46,10 +52,14 @@ async function send() {
 
   try {
     await streamReply(text, assistant);
-  } catch {
-    assistant.text.textContent = "Something went wrong. Check the server and try again.";
-    assistant.text.classList.add("reply-error");
+  } catch (error) {
+    if (error.name !== "AbortError") {
+      assistant.text.textContent = "Something went wrong. Check the server and try again.";
+      assistant.text.classList.add("reply-error");
+    }
+    // Stopped on purpose: keep the partial text; the server drops it from history.
   } finally {
+    controller = null;
     assistant.text.classList.remove("streaming");
     setStreaming(false);
     input.focus();
@@ -61,6 +71,7 @@ async function streamReply(text, assistant) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message: text, conversation_id: conversationId }),
+    signal: controller.signal,
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
@@ -161,7 +172,8 @@ function setToolChip(assistant, state, labelText, detailText) {
 function setStreaming(value) {
   streaming = value;
   input.disabled = value;
-  sendButton.disabled = value;
+  sendButton.classList.toggle("stop", value);
+  sendButton.setAttribute("aria-label", value ? "Stop the reply" : "Send message");
 }
 
 function autosize() {
