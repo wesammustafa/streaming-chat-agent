@@ -62,7 +62,9 @@ Try: `what's the weather in Madrid?` or `¿qué tiempo hace en Lisboa?`
 
 `WEATHER_SOURCE=live` swaps the fixture for real current weather from
 [Open-Meteo](https://open-meteo.com) (free, no API key), for any city its
-geocoder knows:
+geocoder knows. Privacy note: in live mode the place name the planner extracts
+from the user's message is sent to Open-Meteo; the default fixture keeps
+everything on your machine.
 
 ```bash
 ASSISTANT_MODEL=ollama WEATHER_SOURCE=live uv run uvicorn app.main:app
