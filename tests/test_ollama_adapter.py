@@ -11,10 +11,13 @@ from typing import Any
 import httpx
 import pytest
 
-from app.domain.actions import ToolCall
+from app.domain.actions import DirectResponse, ToolCall
 from app.domain.messages import Message
 from app.domain.tools import ToolResult, ToolSpec
 from app.models.ollama import PLANNER_CONTEXT_MESSAGES, OllamaAssistantModel
+from app.services.assistant import AssistantService
+from app.services.conversation_store import InMemoryConversationStore
+from app.services.tool_registry import ToolRegistry
 from app.tools.calculator import CalculatorTool
 from app.tools.weather import WeatherLookupTool
 
@@ -157,6 +160,71 @@ async def test_planner_menu_defaults_to_the_real_tool_specs():
     system = payloads[0]["messages"][0]["content"]
     assert CalculatorTool.spec.description.rstrip(".") in system
     assert WeatherLookupTool.spec.description.rstrip(".") in system
+
+
+async def test_rejected_calculator_plan_surfaces_as_failed_tool_call():
+    # The observed failure: 10^56 * 10^56 (117 chars) exceeded the calculator's
+    # cap, silently became a direct reply, and the raw LLM answered "10^83".
+    # The plan must instead run as a tool call the calculator refuses, with the
+    # reason reaching both the event stream and the responder prompt.
+    oversized = f"{'1' + '0' * 56} * {'1' + '0' * 56}"
+    payloads: list[dict[str, Any]] = []
+
+    def handler(request):
+        payload = json.loads(request.content)
+        payloads.append(payload)
+        if payload.get("stream"):  # responder call
+            return httpx.Response(200, content=b'{"message": {"content": "ok"}}\n')
+        plan = json.dumps({"action": "calculator", "expression": oversized})
+        return httpx.Response(200, json={"message": {"content": plan}})
+
+    service = AssistantService(
+        model=OllamaAssistantModel(transport=httpx.MockTransport(handler)),
+        store=InMemoryConversationStore(),
+        registry=ToolRegistry([CalculatorTool()]),
+    )
+    events = [event async for event in service.stream_reply("c1", f"what is {oversized}?")]
+    types = [event.type for event in events]
+    assert types[:3] == ["message_start", "tool_start", "tool_error"]
+    assert types[-1] == "message_done"
+    assert events[2].error and "longer than 100 characters" in events[2].error
+    # The responder was told the reason instead of being left to improvise math.
+    note = payloads[-1]["messages"][-1]
+    assert note["role"] == "system"
+    assert "longer than 100 characters" in note["content"]
+
+
+async def test_truncated_planner_json_falls_back_to_deterministic_backstop():
+    # The observed real-world failure: qwen stops mid-copy on long digit runs,
+    # emitting unparseable JSON. The message itself plainly IS the expression,
+    # so the backstop must still route it to the tool.
+    oversized = f"{'1' + '0' * 56} * {'1' + '0' * 56}"
+    truncated = '{"action": "calculator", "expression": "1' + "0" * 30
+
+    def handler(request):
+        return httpx.Response(200, json={"message": {"content": truncated}})
+
+    model = OllamaAssistantModel(transport=httpx.MockTransport(handler))
+    action = await model.plan_next_action(user(oversized))
+    assert action == ToolCall(tool_name="calculator", tool_input=oversized)
+
+
+async def test_planner_direct_on_plain_arithmetic_is_backstopped():
+    def handler(request):
+        return httpx.Response(200, json={"message": {"content": '{"action": "direct"}'}})
+
+    model = OllamaAssistantModel(transport=httpx.MockTransport(handler))
+    action = await model.plan_next_action(user("what is 2 + 2?"))
+    assert action == ToolCall(tool_name="calculator", tool_input="2 + 2")
+
+
+async def test_backstop_leaves_chat_messages_alone():
+    def handler(request):
+        return httpx.Response(200, json={"message": {"content": '{"action": "direct"}'}})
+
+    model = OllamaAssistantModel(transport=httpx.MockTransport(handler))
+    action = await model.plan_next_action(user("route 66 - the song"))
+    assert action == DirectResponse()
 
 
 async def test_responder_prepends_system_prompt_and_maps_history():

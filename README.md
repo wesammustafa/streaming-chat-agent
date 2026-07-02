@@ -44,8 +44,12 @@ needed, no env vars required.
 Routes planning and replies through a local [Ollama](https://ollama.com)
 server for realistic multilingual chat. The LLM's only planning power is
 choosing between a `calculator` call, a `weather_lookup` call, or a direct
-reply; every proposed plan is validated before execution and anything invalid
-falls back to a direct reply. Recommended model: Qwen2.5 7B Instruct.
+reply. A calculator plan the tool refuses (say, an expression over 100
+characters) fails as a visible tool call, and the reply explains why instead
+of improvising math. Malformed or truncated planner output falls back to a
+direct reply, with a deterministic net underneath: a message that plainly
+reads as arithmetic still routes to the calculator.
+Recommended model: Qwen2.5 7B Instruct.
 
 ```bash
 ollama pull qwen2.5:7b

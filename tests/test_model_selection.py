@@ -56,17 +56,25 @@ PLAN_CASES = [
     ('{"action": "weather_lookup", "location": ""}', DirectResponse()),
     ('{"action": "weather_lookup", "location": 42}', DirectResponse()),
     ('{"action": "weather_lookup", "location": "' + "x" * 200 + '"}', DirectResponse()),
-    # calculator: valid expressions route, invalid ones fall back to direct
+    # calculator: well-formed plans route, sound or not; the tool refuses bad
+    # expressions itself, so the refusal reason reaches the reply
     ('{"action": "calculator", "expression": "15 * 23"}', ToolCall("calculator", "15 * 23")),
     (
         '{"action": "calculator", "expression": "(10 - 4) * 2"}',
         ToolCall("calculator", "(10 - 4) * 2"),
     ),
     ('```json\n{"action": "calculator", "expression": "2+2"}\n```', ToolCall("calculator", "2+2")),
-    ('{"action": "calculator", "expression": "2 +"}', DirectResponse()),  # syntax error
-    ('{"action": "calculator", "expression": "2 ** 3"}', DirectResponse()),  # disallowed op
-    ('{"action": "calculator", "expression": "__import__"}', DirectResponse()),  # unsafe name
-    ('{"action": "calculator", "expression": "' + "9" * 200 + '"}', DirectResponse()),  # too long
+    ('{"action": "calculator", "expression": "2 +"}', ToolCall("calculator", "2 +")),
+    ('{"action": "calculator", "expression": "2 ** 3"}', ToolCall("calculator", "2 ** 3")),
+    (
+        '{"action": "calculator", "expression": "__import__"}',
+        ToolCall("calculator", "__import__"),  # the tool's AST whitelist rejects it
+    ),
+    (
+        '{"action": "calculator", "expression": "' + "9" * 200 + '"}',
+        ToolCall("calculator", "9" * 200),  # the tool's length cap rejects it
+    ),
+    # malformed shapes still fall back to a direct reply
     ('{"action": "calculator", "expression": ""}', DirectResponse()),  # empty
     ('{"action": "calculator"}', DirectResponse()),  # missing expression
     ('{"action": "calculator", "expression": 42}', DirectResponse()),  # non-string
@@ -94,6 +102,13 @@ async def test_unreachable_server_planning_falls_back_to_direct():
     model = OllamaAssistantModel(base_url=UNREACHABLE, request_timeout_seconds=2)
     action = await model.plan_next_action([Message(role="user", content="weather in Madrid?")])
     assert action == DirectResponse()
+
+
+async def test_unreachable_server_still_routes_plain_arithmetic():
+    # The deterministic backstop applies even when no plan could be fetched.
+    model = OllamaAssistantModel(base_url=UNREACHABLE, request_timeout_seconds=2)
+    action = await model.plan_next_action([Message(role="user", content="what is 2 + 2?")])
+    assert action == ToolCall("calculator", "2 + 2")
 
 
 async def test_unreachable_server_reply_yields_guidance_instead_of_crashing():

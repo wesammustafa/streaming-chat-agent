@@ -35,14 +35,10 @@ class RuleBasedAssistantModel:
         self.chunk_delay_seconds = chunk_delay_seconds
 
     async def plan_next_action(self, messages: list[Message]) -> NextAction:
-        text = messages[-1].content
-        expression = _extract_expression(text)
-        if expression is None:
+        candidate = unvalidated_calculator_intent(messages[-1].content)
+        if candidate is None or validate_expression(candidate) is not None:
             return DirectResponse()
-        whole_message = text.strip().rstrip("?.!").strip()
-        if _CALC_INTENT.search(text) or whole_message == expression:
-            return ToolCall(tool_name=CALCULATOR_TOOL_NAME, tool_input=expression)
-        return DirectResponse()
+        return ToolCall(tool_name=CALCULATOR_TOOL_NAME, tool_input=candidate)
 
     async def stream_response(
         self, messages: list[Message], tool_result: ToolResult | None = None
@@ -66,12 +62,34 @@ class RuleBasedAssistantModel:
         return FALLBACK_REPLY
 
 
-def _extract_expression(text: str) -> str | None:
-    """Longest arithmetic-looking substring, only if the calculator would accept it."""
+def _arithmetic_candidate(text: str) -> str | None:
+    """Longest arithmetic-looking substring with at least a digit and an operator."""
     candidates = [candidate.strip() for candidate in _EXPRESSION_CANDIDATE.findall(text)]
     best = max(candidates, key=len, default="")
     if not any(ch.isdigit() for ch in best) or not any(op in best for op in "+-*/"):
         return None
-    if validate_expression(best) is not None:
+    return best
+
+
+def unvalidated_calculator_intent(text: str) -> str | None:
+    """The message's arithmetic candidate when it reads as a calculator request.
+
+    Deliberately unvalidated: this planner pre-validates the candidate, while
+    the ollama adapter's backstop hands it straight to the tool, which refuses
+    bad expressions visibly.
+    """
+    best = _arithmetic_candidate(text)
+    if best is None:
+        return None
+    whole_message = text.strip().rstrip("?.!").strip()
+    if _CALC_INTENT.search(text) or whole_message == best:
+        return best
+    return None
+
+
+def _extract_expression(text: str) -> str | None:
+    """Longest arithmetic-looking substring, only if the calculator would accept it."""
+    best = _arithmetic_candidate(text)
+    if best is None or validate_expression(best) is not None:
         return None
     return best
