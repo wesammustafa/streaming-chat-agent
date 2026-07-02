@@ -112,6 +112,7 @@ function addUserMessage(text) {
   row.className = "msg user";
   const body = document.createElement("div");
   body.className = "msg-text";
+  body.dir = "auto"; // pick LTR/RTL from content so Arabic, Hebrew, etc. read correctly
   body.textContent = text; // textContent everywhere: user/model text is never HTML
   row.appendChild(body);
   column.appendChild(row);
@@ -135,10 +136,12 @@ function addAssistantMessage() {
   dot.className = "dot";
   const label = document.createElement("span");
   const detail = document.createElement("code");
+  detail.dir = "auto"; // tool output may echo a place name in any script
   chip.append(dot, label, detail);
 
   const text = document.createElement("div");
   text.className = "msg-text streaming";
+  text.dir = "auto"; // reply direction follows the language the model streams
 
   body.append(chip, text);
   row.append(avatar, body);
