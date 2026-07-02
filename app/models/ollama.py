@@ -46,15 +46,20 @@ class OllamaAssistantModel:
         base_url: str = "http://127.0.0.1:11434",
         model_name: str = "qwen2.5:7b",
         request_timeout_seconds: float = 120.0,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._model_name = model_name
         # Long read timeout: a 7B model can pause noticeably between tokens on first load.
         self._timeout = httpx.Timeout(request_timeout_seconds, connect=5.0)
+        self._transport = transport  # injectable for offline tests
+
+    def _client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=self._timeout, transport=self._transport)
 
     async def plan_next_action(self, messages: list[Message]) -> NextAction:
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with self._client() as client:
                 response = await client.post(
                     f"{self._base_url}/api/chat",
                     json={
@@ -86,7 +91,7 @@ class OllamaAssistantModel:
         emitted = False
         try:
             async with (
-                httpx.AsyncClient(timeout=self._timeout) as client,
+                self._client() as client,
                 client.stream("POST", f"{self._base_url}/api/chat", json=payload) as response,
             ):
                 response.raise_for_status()

@@ -37,6 +37,7 @@ module = [
     "test_calculator",
     "test_golden_cases",
     "test_model_selection",
+    "test_ollama_adapter",
     "test_registry_and_store",
     "test_rule_based_model",
     "test_weather_tool",
