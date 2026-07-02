@@ -27,10 +27,10 @@ The planner reuses the calculator's own validator, so planner and executor
 agree by construction. A real LLM adapter slots in by implementing
 `AssistantModel`; both protocol methods are async-shaped for exactly that,
 and the optional `OllamaAssistantModel` (selected with `ASSISTANT_MODEL=ollama`,
-see README) demonstrates the swap: it may only propose the fixture-based
-`weather_lookup` tool, its plan is validated before execution, and invalid
-output falls back to a direct reply. Tests keep running against the
-deterministic default either way.
+see README) demonstrates the swap: it may only propose the registered
+`calculator` and `weather_lookup` tools, its plans are validated before
+execution, and invalid output falls back to a direct reply. Tests keep
+running against the deterministic default either way.
 
 ## Diagrams
 
