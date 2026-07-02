@@ -200,9 +200,10 @@ assistant message persists only on successful completion. Partial replies are
 dropped, never half-saved.
 
 **In-memory store, capped.** A protocol boundary with a history cap keeps
-memory bounded. Concurrent posts to the same conversation are a documented
-limitation (interleaved history writes); a per-conversation asyncio lock is
-the first fix if it starts to matter.
+memory bounded. Replies are serialized per conversation with an asyncio lock
+(acquired after `message_start`, so a queued request still gets a fast first
+event), which keeps history writes from interleaving; different conversations
+run concurrently. The lock map shares the in-memory store's lifetime.
 
 **Flat event model.** One `StreamEvent` with optional fields keeps the wire
 format and the frontend switch simple. The natural evolution is a
@@ -253,5 +254,5 @@ is only cheaper if it does not increase retries and failures.
 
 ## With more time
 
-A thin `run_evals.py` CLI over the same golden jsonl, a per-conversation write
-lock, and a README GIF of the tool-error flow.
+A thin `run_evals.py` CLI over the same golden jsonl and a README GIF of the
+tool-error flow.

@@ -174,3 +174,54 @@ async def test_user_message_is_stored_before_planning():
     await events_of(make_service(model), text="just sent")
     assert model.seen_messages is not None
     assert model.seen_messages[-1] == Message(role="user", content="just sent")
+
+
+class YieldingModel:
+    """Suspends mid-reply, so an unserialized concurrent request would interleave."""
+
+    async def plan_next_action(self, messages):
+        await asyncio.sleep(0)
+        return DirectResponse()
+
+    async def stream_response(self, messages, tool_result=None):
+        yield "part one "
+        await asyncio.sleep(0)
+        yield "part two"
+
+
+async def test_same_conversation_replies_do_not_interleave_history():
+    store = InMemoryConversationStore()
+    service = make_service(YieldingModel(), store=store)
+    await asyncio.gather(
+        events_of(service, conversation_id="c1", text="first"),
+        events_of(service, conversation_id="c1", text="second"),
+    )
+    assert [(m.role, m.content) for m in store.get("c1")] == [
+        ("user", "first"),
+        ("assistant", "part one part two"),
+        ("user", "second"),
+        ("assistant", "part one part two"),
+    ]
+
+
+async def test_different_conversations_are_not_serialized():
+    gate = asyncio.Event()
+
+    class GatedModel:
+        async def plan_next_action(self, messages):
+            return DirectResponse()
+
+        async def stream_response(self, messages, tool_result=None):
+            if messages[-1].content == "blocked":
+                await gate.wait()
+            yield "done"
+
+    service = make_service(GatedModel())
+    blocked = asyncio.create_task(events_of(service, conversation_id="a", text="blocked"))
+    # A global lock would deadlock conversation "b" behind "a" and trip the timeout.
+    events = await asyncio.wait_for(
+        events_of(service, conversation_id="b", text="free"), timeout=1
+    )
+    assert types_of(events)[-1] == "message_done"
+    gate.set()
+    await blocked
