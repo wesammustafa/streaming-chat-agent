@@ -7,7 +7,7 @@ import pytest
 import app.services.assistant
 from app.domain.actions import DirectResponse, ToolCall
 from app.domain.messages import Message
-from app.main import model_from_env
+from app.main import model_from_env, tools_from_env
 from app.models.ollama import OllamaAssistantModel, parse_plan
 from app.models.rule_based import RuleBasedAssistantModel
 
@@ -16,26 +16,26 @@ UNREACHABLE = "http://127.0.0.1:1"
 
 def test_default_model_is_deterministic(monkeypatch):
     monkeypatch.delenv("ASSISTANT_MODEL", raising=False)
-    assert isinstance(model_from_env(), RuleBasedAssistantModel)
+    assert isinstance(model_from_env(tools_from_env()), RuleBasedAssistantModel)
 
 
 def test_explicit_deterministic_selection(monkeypatch):
     monkeypatch.setenv("ASSISTANT_MODEL", "deterministic")
-    assert isinstance(model_from_env(), RuleBasedAssistantModel)
+    assert isinstance(model_from_env(tools_from_env()), RuleBasedAssistantModel)
 
 
 def test_ollama_selection_reads_env(monkeypatch):
     monkeypatch.setenv("ASSISTANT_MODEL", "ollama")
     monkeypatch.setenv("OLLAMA_MODEL", "qwen2.5:7b-instruct")
     monkeypatch.setenv("OLLAMA_URL", "http://127.0.0.1:12345/")
-    model = model_from_env()
+    model = model_from_env(tools_from_env())
     assert isinstance(model, OllamaAssistantModel)
 
 
 def test_unknown_model_choice_fails_fast(monkeypatch):
     monkeypatch.setenv("ASSISTANT_MODEL", "gpt9000")
     with pytest.raises(ValueError, match="ASSISTANT_MODEL"):
-        model_from_env()
+        model_from_env(tools_from_env())
 
 
 def test_both_models_satisfy_the_protocol_shape():

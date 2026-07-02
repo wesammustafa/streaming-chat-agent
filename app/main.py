@@ -24,10 +24,11 @@ def create_app(
     tools: list[Tool] | None = None,
 ) -> FastAPI:
     """Composition root: production defaults, injectable fakes for tests."""
+    active_tools = tools if tools is not None else tools_from_env()
     service = AssistantService(
-        model=model if model is not None else model_from_env(),
+        model=model if model is not None else model_from_env(active_tools),
         store=store if store is not None else InMemoryConversationStore(),
-        registry=ToolRegistry(tools if tools is not None else tools_from_env()),
+        registry=ToolRegistry(active_tools),
     )
     app = FastAPI(title="Streaming Chat Agent")
     app.include_router(build_chat_router(service))
@@ -37,7 +38,7 @@ def create_app(
     return app
 
 
-def model_from_env() -> AssistantModel:
+def model_from_env(tools: list[Tool]) -> AssistantModel:
     """ASSISTANT_MODEL selects the adapter; deterministic is the default and CI target."""
     choice = os.environ.get("ASSISTANT_MODEL", "deterministic").strip().lower()
     if choice == "deterministic":
@@ -48,6 +49,8 @@ def model_from_env() -> AssistantModel:
         return OllamaAssistantModel(
             base_url=os.environ.get("OLLAMA_URL", "http://127.0.0.1:11434"),
             model_name=os.environ.get("OLLAMA_MODEL", "qwen2.5:7b"),
+            # The registered tools drive the planner menu; the registry stays the truth.
+            tool_specs=[tool.spec for tool in tools],
         )
     raise ValueError(f"unknown ASSISTANT_MODEL {choice!r}: use 'deterministic' or 'ollama'")
 

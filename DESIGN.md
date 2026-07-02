@@ -27,10 +27,11 @@ The planner reuses the calculator's own validator, so planner and executor
 agree by construction. A real LLM adapter slots in by implementing
 `AssistantModel`; both protocol methods are async-shaped for exactly that,
 and the optional `OllamaAssistantModel` (selected with `ASSISTANT_MODEL=ollama`,
-see README) demonstrates the swap: it may only propose the registered
-`calculator` and `weather_lookup` tools, its plans are validated before
-execution, and invalid output falls back to a direct reply. Tests keep
-running against the deterministic default either way.
+see README) demonstrates the swap: its planner menu is built from the
+registered tools' specs, it may only propose tools it can validate
+(`calculator` and `weather_lookup`), and invalid output falls back to a
+direct reply. Tests keep running against the deterministic default either
+way.
 
 ## Diagrams
 
@@ -39,7 +40,7 @@ Main runtime components:
 - `POST /api/chat/stream` (app/api/chat.py, app/main.py): validates input, streams typed `StreamEvent`s as NDJSON, guarantees exactly one terminal event per stream.
 - `AssistantService.stream_reply` (app/services/assistant.py): persists the user message, plans, runs at most one tool under a timeout, streams reply text, persists the assistant message on completion.
 - `RuleBasedAssistantModel` (app/models/rule_based.py): plans via regex intent detection plus AST pre-validation and owns every user-facing string.
-- `ToolRegistry` + `CalculatorTool` + `WeatherLookupTool` (app/services/tool_registry.py, app/tools/): dict-lookup tool dispatch that fails closed on unknown names; arithmetic evaluated over a whitelisted AST, weather served from a deterministic fixture (or live Open-Meteo when WEATHER_SOURCE=live; same tool name, so planners cannot tell).
+- `ToolRegistry` + `CalculatorTool` + `WeatherLookupTool` (app/services/tool_registry.py, app/tools/): dict-lookup tool dispatch that fails closed on unknown names; arithmetic evaluated over a whitelisted AST, weather served from a deterministic fixture (or live Open-Meteo when WEATHER_SOURCE=live; same tool name, so validated plans route identically).
 - Static frontend (app/static/app.js): parses the NDJSON stream incrementally and renders the streaming bubble plus a live tool status pill.
 
 ### Reply orchestration

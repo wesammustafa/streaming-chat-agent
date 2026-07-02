@@ -68,8 +68,9 @@ geocoder knows:
 ASSISTANT_MODEL=ollama WEATHER_SOURCE=live uv run uvicorn app.main:app
 ```
 
-Both weather tools answer to the same `weather_lookup` name, so the model
-never knows which one is wired. The fixture remains the default; tests never
+Both weather tools answer to the same `weather_lookup` name, so validated
+plans route the same way whichever is wired. The planner's tool menu is built
+from the registered tools' specs. The fixture remains the default; tests never
 touch the network.
 
 Notes: Ollama mode exists for local demo realism, not production reliability.
