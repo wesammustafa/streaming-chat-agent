@@ -28,10 +28,13 @@ agree by construction. A real LLM adapter slots in by implementing
 `AssistantModel`; both protocol methods are async-shaped for exactly that,
 and the optional `OllamaAssistantModel` (selected with `ASSISTANT_MODEL=ollama`,
 see README) demonstrates the swap: its planner menu is built from the
-registered tools' specs, it may only propose tools it can validate
-(`calculator` and `weather_lookup`), and invalid output falls back to a
-direct reply. Tests keep running against the deterministic default either
-way.
+registered tools' specs, and it may only propose the `calculator` and
+`weather_lookup` shapes. A calculator plan the tool refuses becomes a visible
+failed tool call whose reason reaches the reply; malformed or truncated
+planner output falls back to a direct reply behind a deterministic backstop
+that still routes plainly-arithmetic messages to the calculator, so the LLM
+never improvises math. Tests keep running against the deterministic default
+either way.
 
 ## Diagrams
 

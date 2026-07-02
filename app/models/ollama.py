@@ -3,9 +3,13 @@
 Demo realism only: non-deterministic, never used by tests or CI. The
 deterministic RuleBasedAssistantModel stays the default everywhere. The LLM
 only classifies the message into a calculator call, a weather_lookup call, or
-a direct reply; every proposed plan is validated here (calculator expressions
-with the same AST whitelist the tool uses) and anything invalid falls back to
-a direct reply. The tools do all the actual work: the LLM never computes.
+a direct reply. Three nets keep it from improvising math: every calculator
+plan is executed against the tool, which re-validates and refuses bad
+expressions with a visible reason; unusable planner output (malformed or
+truncated JSON) falls through a deterministic backstop that still routes
+plainly-arithmetic messages to the calculator; and the responder prompt
+forbids computing without a tool result. The tools do all the actual work:
+the LLM never computes.
 """
 
 import json
@@ -17,7 +21,8 @@ import httpx
 from app.domain.actions import DirectResponse, NextAction, ToolCall
 from app.domain.messages import Message
 from app.domain.tools import ToolResult, ToolSpec
-from app.tools.calculator import CalculatorTool, validate_expression
+from app.models.rule_based import unvalidated_calculator_intent
+from app.tools.calculator import CalculatorTool
 from app.tools.weather import WeatherLookupTool
 
 # Must match the registered tools' spec.name.
@@ -60,7 +65,9 @@ def _planner_prompt(tool_specs: Sequence[ToolSpec]) -> str:
     return prompt
 
 _RESPONDER_PROMPT = (
-    "You are a friendly, concise assistant. Always answer in the language the user wrote in."
+    "You are a friendly, concise assistant. Always answer in the language the user wrote in. "
+    "Never do arithmetic yourself: without a calculator tool result, say the calculation "
+    "could not be run."
 )
 
 
@@ -104,8 +111,11 @@ class OllamaAssistantModel:
                 raw_plan = response.json()["message"]["content"]
         except Exception:
             # Unreachable or misbehaving server must never block the reply.
-            return DirectResponse()
-        return parse_plan(raw_plan)
+            raw_plan = ""
+        action = parse_plan(raw_plan)
+        if isinstance(action, DirectResponse):
+            return _calculator_backstop(messages[-1].content)
+        return action
 
     async def stream_response(
         self, messages: list[Message], tool_result: ToolResult | None = None
@@ -161,11 +171,12 @@ class OllamaAssistantModel:
 
 
 def parse_plan(raw_plan: str) -> NextAction:
-    """Validate the LLM's tool plan; anything unexpected becomes a direct response.
+    """Check the LLM's plan shape; malformed plans become a direct response.
 
-    The LLM only proposes. For calculator, the extracted expression is validated
-    with the calculator's own AST whitelist before we emit a ToolCall, so the
-    tool stays the only thing that actually computes.
+    The LLM only proposes. A well-formed calculator plan is emitted as a
+    ToolCall even when the expression looks doomed: the tool re-validates and
+    refuses it, and that failed ToolResult reaches the responder, which then
+    explains the refusal instead of improvising math.
     """
     match = re.search(r"\{.*\}", raw_plan, re.S)
     if match is None:
@@ -184,14 +195,26 @@ def parse_plan(raw_plan: str) -> NextAction:
     return DirectResponse()
 
 
+def _calculator_backstop(text: str) -> NextAction:
+    """Deterministic net under the LLM planner.
+
+    Truncated or malformed planner JSON must not downgrade arithmetic into the
+    LLM improvising math: when the message plainly reads as a calculation (the
+    same gate the rule-based model uses), route the raw candidate to the tool,
+    which computes it or refuses it visibly.
+    """
+    candidate = unvalidated_calculator_intent(text)
+    if candidate is None:
+        return DirectResponse()
+    return ToolCall(tool_name=CALCULATOR_TOOL_NAME, tool_input=candidate)
+
+
 def _calculator_call(expression: object) -> NextAction:
-    if not isinstance(expression, str):
+    if not isinstance(expression, str) or not expression.strip():
         return DirectResponse()
-    expression = expression.strip()
-    # Same validator the deterministic planner uses; the tool still recomputes.
-    if validate_expression(expression) is not None:
-        return DirectResponse()
-    return ToolCall(tool_name=CALCULATOR_TOOL_NAME, tool_input=expression)
+    # No content pre-check on purpose: the tool validates and refuses, and the
+    # failure flows to the responder, which must explain rather than compute.
+    return ToolCall(tool_name=CALCULATOR_TOOL_NAME, tool_input=expression.strip())
 
 
 def _weather_call(location: object) -> NextAction:
